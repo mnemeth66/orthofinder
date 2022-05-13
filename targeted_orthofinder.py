@@ -2,10 +2,13 @@ from Bio.Blast import NCBIWWW, NCBIXML
 from Bio.Seq import Seq, translate
 import Bio.SeqIO as SeqIO
 from Bio import Entrez
+import streamlit as st
 
-import argparse, csv, glob, os, re, sys
+import argparse, csv, glob, logging, os, re, sys
 from itertools import product
 from multiprocessing import Pool
+
+logging.basicConfig(filename='./outputs/log.txt', level=logging.INFO, force=True)
 
 # Get pairs of gene targets and organism targets
 def get_blastp_queries():
@@ -23,15 +26,15 @@ def blastp(query):
     record = SeqIO.read(file, "fasta")
     # Translates the sequence
     translated = translate(record.seq)
-    print(f"translated, sending {(gene, organism)} to blastp")
+    logging.info(f"translated, sending {(gene, organism)} to blastp")
     try:
         results_handler = NCBIWWW.qblast("blastp","nr", translated,
                                             entrez_query=organism)
         with open(f"./outputs/blastp/blastp_results_{gene}_{organism}.xml", "w") as f:
             f.write(results_handler.read())
-        print(f"blastp received, {(gene, organism)}")
+        logging.info(f"blastp received, {(gene, organism)}")
     except:
-        print(f"Error getting blastp results for {(gene, organism)}")
+        logging.info(f"Error getting blastp results for {(gene, organism)}")
 
 def get_tblastn_queries(e_value=1e-10):
     files = glob.glob("./outputs/blastp/*.xml")
@@ -54,17 +57,27 @@ def get_tblastn_queries(e_value=1e-10):
                             continue
 
                         # If we haven't seen this organism yet, ask the user if it's the right one
+
+
+                        #########
+                        # Still need to make this play nice with the streamlit UI
+
                         ask_same_organism = input(f"Is the organism {found_organism_name} the same as {organism} (the query)? (y/n)")
+                        logging.info("trying to ask same organism")
+                        # ask_same_organism = st.radio(f"Is the organism {found_organism_name} the same as {organism} (the query)?", ["Y", "N"])
+
+                        #########
+
                         if not (ask_same_organism.lower() == 'y'):
-                            print(f"Okay, we won't use {found_organism_name}.")
+                            logging.info(f"Okay, we won't use {found_organism_name}.")
                             wrong_organisms.add(found_organism_name)
                             continue
                     # If we get here, we found the right organism
-                    print(f"Found the right organism: {found_organism_name}")
-                    print(f"The alignment is: {alignment.title}")
-                    print(f"The evalue is: {alignment.hsps[0].expect}")
-                    print(f"The hit_id is: {alignment.hit_id}")
-                    print('\n')
+                    logging.info(f"Found the right organism: {found_organism_name}")
+                    logging.info(f"The alignment is: {alignment.title}")
+                    logging.info(f"The evalue is: {alignment.hsps[0].expect}")
+                    logging.info(f"The hit_id is: {alignment.hit_id}")
+                    logging.info('\n')
                     if alignment.hsps[0].expect < e_value:
                         good_queries.append((gene, organism, found_organism_name, alignment.accession))
                         found_alignment = True
@@ -76,17 +89,17 @@ def get_tblastn_queries(e_value=1e-10):
 # tblastn the found proteins in the organisms to get the original sequence
 def tblastn(query):
     gene, organism, found_organism_name, accession = query
-    print(f"found_organism_name: {found_organism_name}")
+    logging.info(f"found_organism_name: {found_organism_name}")
     if found_organism_name:
-        print(f"sending {(gene, organism)} to tblastn")
+        logging.info(f"sending {(gene, organism)} to tblastn")
         try:
             results_handler = NCBIWWW.qblast("tblastn","nt", accession,
                                                 filter=None, entrez_query=found_organism_name)
             with open(f"./outputs/tblastn/tblastn_results_{gene}_{organism}.xml", "w") as f:
                 f.write(results_handler.read())
-            print(f"tblastn received, {(gene, organism)}")
+            logging.info(f"tblastn received, {(gene, organism)}")
         except:
-            print(f"Error getting tblastn results for {(gene, organism)}")
+            logging.info(f"Error getting tblastn results for {(gene, organism)}")
 
 # Get the original sequence from the tblastn results
 def get_original_sequence(query):
@@ -109,9 +122,9 @@ def get_original_sequence(query):
                 handle = Entrez.efetch(email=email,db="nucleotide", id=gene_accession, rettype="gb", retmode="text", seq_start=padded_start, seq_stop=padded_end)
                 with open(f"./outputs/genbank/genbank_results_{gene}_{organism}.gb", "w") as f:
                     f.write(handle.read())
-                print(f"genbank received, {(gene, organism)}")
+                logging.info(f"genbank received, {(gene, organism)}")
         except:
-            print(f"No tblastn file found for {(gene, organism)}")
+            logging.info(f"No tblastn file found for {(gene, organism)}")
     return (gene, organism, found_organism, accession, cds_start, cds_end)
 
 def get_csv_entries(query):
@@ -124,16 +137,16 @@ def get_csv_entries(query):
                 seq = record.seq
                 pre200, cds, post200 = seq[:cds_start], seq[cds_start:-1*cds_end], seq[-1*cds_end:]
         except:
-            print(f"No genbank file for {(gene, organism)}")
+            logging.info(f"No genbank file for {(gene, organism)}")
     return (gene, organism, found_organism, accession, cds_start, cds_end, pre200, cds, post200)
 
 def validate_folder_structure():
     # Check that the inputs folder exists and has .fasta files and one organisms.txt file
     if not os.path.isdir("./inputs"):
-        print("The inputs folder does not exist. Please create it and put the .fasta files and organisms file in it.")
+        logging.info("The inputs folder does not exist. Please create it and put the .fasta files and organisms file in it.")
         sys.exit(1)
     if not os.path.isfile("./inputs/organisms.txt"):
-        print("The organisms.txt file does not exist. Please create it and put the organisms in it, separated by commas.")
+        logging.info("The organisms.txt file does not exist. Please create it and put the organisms in it, separated by commas.")
         sys.exit(1)
 
     # Make sure .outputs, .outputs/blastp, .outputs/tblastn, and .outputs/genbank exist
@@ -146,14 +159,11 @@ def validate_folder_structure():
     if not os.path.exists("./outputs/genbank"):
         os.mkdir("./outputs/genbank")
 
-if __name__ == "__main__":
-    # Define flags
-    parser = argparse.ArgumentParser(description='Run targeted orthofinder')
-    parser.add_argument('-c', '--clean', action='store_true', help='Clean up files')
-    parser.add_argument('-e', '--e_value', type=float, default=0.01, help='E-value threshold')
-    parser.add_argument('-m', '--email', type=str, default="", help='Email address')
-    args = parser.parse_args()
-    e_value = args.e_value
+    
+    logging.info('test')
+    print('MADE THE LOGGING CONFIG')
+
+def orthofinder(clean, e_value, email):
     validate_folder_structure()
 
     # Start pipeline
@@ -165,8 +175,8 @@ if __name__ == "__main__":
     with Pool() as p:
         p.map(tblastn, queries)
 
-    # Add args.email to the queries
-    queries = [(gene, organism, found_organism_name, accession, args.email) for gene, organism, found_organism_name, accession in queries]
+    # Add email to the queries
+    queries = [(gene, organism, found_organism_name, accession, email) for gene, organism, found_organism_name, accession in queries]
     with Pool() as p:
         queries = p.map(get_original_sequence, queries)
 
@@ -184,11 +194,22 @@ if __name__ == "__main__":
             # Write headers gene, organism, found_organism, accession, cds_start, cds_end, pre200, cds, post200
             writer.writerow(["gene", "organism", "found_organism", "accession", "cds_start", "cds_end", "pre200", "cds", "post200"])
             writer.writerows(csv_entries)
-        print("Done!")
-        print("Summary saved to outputs/summary.csv")
+        logging.info("Done!")
+        logging.info("Summary saved to outputs/summary.csv")
 
     # Clean up files
-    if args.clean:
-        print("Cleaning up files")
+    if clean:
+        logging.info("Cleaning up files")
         os.system("rm -rf ./outputs/blastp")
         os.system("rm -rf ./outputs/tblastn")
+
+if __name__ == "__main__":
+    # Define flags
+    # This is for using the cli; orthofinder() was separated for use by the gui as well
+    parser = argparse.ArgumentParser(description='Run targeted orthofinder')
+    parser.add_argument('-c', '--clean', action='store_true', help='Clean up files')
+    parser.add_argument('-e', '--e_value', type=float, default=0.01, help='E-value threshold')
+    parser.add_argument('-m', '--email', type=str, default="", help='Email address')
+    args = parser.parse_args()
+    orthofinder(args.clean, args.e_value, args.email)
+

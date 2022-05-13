@@ -12,6 +12,7 @@ For example:
     conda create -n orthofinder python=3.8
     conda activate orthofinder
     conda install biopython
+    pip install streamlit
 
 ### Setup
 
@@ -44,3 +45,5 @@ Organisms.txt is a comma-separated list of organism names, such as the following
 ### Notes
 
 This runs quite slowly. NCBI throttles requests from API access, and recommends the user setting up their own cloud BLAST server for very large requests.
+
+The streamlit application is not complete, but can be updated in the future.
